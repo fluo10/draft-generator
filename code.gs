@@ -53,6 +53,31 @@ class DraftTemplate{
     return resultEmails.join(",");
   };
   /**
+   * 本文や件名の日付やユーザー名など動的な値をキーワードから置き換えるための関数
+   * @param {string} raw - デフォルトの本文
+   * @return {string} - 対象のキーワードを動的な値置き換えたもの
+   */
+  static replaceKeyword(raw){
+    const date = new Date();
+    const KEYWORDS = {family_name : ContactsApp.getContact(Session.getActiveUser().getEmail()).getFamilyName(),
+                      yyyy        : date.getFullYear().toString(),
+                      mm          : zeroPadding(date.getMonth(), 2),
+                      m           : date.getMonth().toString(),
+                      dd          : zeroPadding(date.getDate(), 2),
+                      d           : date.getDate().toString()
+                     };
+    
+    let tmp = raw;
+    for (const keyword of KEYWORDS.keys){
+      const pattern = "\{\{" + keyword + "\}\}";
+      const re = new RegExp(pattern,"g") ;
+      tmp = tmp.replace(re, KEYWORDS[keyword]);
+    }
+
+  }
+  
+
+  /**
    * 下書きを生成するためのメソッド
    * @param {boolean} force - すでに同名のメールが下書きにある場合にどうするか、true なら上書き、falseならスキップ
    */
@@ -160,6 +185,15 @@ function sheet2Drafts(){
 function transpose2dArray(array){
   return array[0].map((col, i) => array.map(row => row[i]));
 };
+/**
+ * 桁を0で埋めるための関数
+ * @param {string[][]} array - 文字列の2次配列。
+ * @returns {string[][]} - 文字列の2次配列　引数の行列を入れ替えたもの
+ */
+function zeroPadding(num, len){
+	return ( Array(len).join('0') + num ).slice( -len );
+}
+  
 
 /** onOpen時にメニューに項目を追加するための関数。 */
 function addMenu (){
