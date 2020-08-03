@@ -91,20 +91,29 @@ class DraftTemplate{
       Logger.log(logHeader + " Skip ");
     }else{
       if (existDraft && force) {
-        existDraft.deleteDraft();
-        Logger.log(logHeader + " Overwrite");
+        Logger.log(logHeader + " Overwrite " + existDraft.getMessage().getSubject());
+        //existDraft.deleteDraft();
+        existDraft.update(
+          this.to,
+          this.constructor.replaceKeyword(this.subject),
+          this.constructor.replaceKeyword(this.body), 
+          {
+            cc: this.cc
+            // htmlBody: draft.body
+          }
+        );
       } else { 
         Logger.log(logHeader + " Create");
+        GmailApp.createDraft(
+          this.to,
+          this.constructor.replaceKeyword(this.subject),
+          this.constructor.replaceKeyword(this.body), 
+          {
+            cc: this.cc
+            // htmlBody: draft.body
+          }
+        );
       }
-      GmailApp.createDraft(
-        this.to,
-        this.constructor.replaceKeyword(this.subject),
-        this.constructor.replaceKeyword(this.body), 
-        {
-          cc: this.cc
-          // htmlBody: draft.body
-        }
-      );
       Logger.log(logHeader + " Done.");
     };
   };
@@ -126,7 +135,9 @@ class DraftTemplate{
     const re = new RegExp(escapedSubject);
     for(const draft of drafts){
       const subject = draft.getMessage().getSubject();
-      if (re.test(subject)){
+      if (re.test(subject) && draft.getMessage().getTo()){
+        //GmailDraftにはテンプレートが含まれてしまうため、テンプレートを除外するための暫定的な処理。
+        //テンプレートであれば宛先が空欄なので、draft.getMessage().getTo()はfalseになり、処理はスルーされるはず
         return draft;
       }    
     };
