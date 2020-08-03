@@ -53,6 +53,33 @@ class DraftTemplate{
     return resultEmails.join(",");
   };
   /**
+   * 本文や件名の日付やユーザー名など動的な値をキーワードから置き換えるための関数
+   * @param {string} str - デフォルトの本文
+   * @return {string} - 対象のキーワードを動的な値に置き換えたもの
+   */
+  static replaceKeyword(str){
+    const date = new Date();
+    const KEYWORDS = {family_name : ContactsApp.getContact(Session.getActiveUser().getEmail()).getFamilyName(), // 苗字
+                      yyyy        : date.getFullYear().toString(),                                              // 年
+                      mm          : zeroPadding(date.getMonth() + 1, 2),                                        // 月 2桁
+                      m           : (date.getMonth() + 1).toString(),                                           // 月
+                      dd          : zeroPadding(date.getDate(), 2),                                             // 日 2桁
+                      d           : date.getDate().toString(),                                                  // 日
+                      ww          : zeroPadding(getNumberOfWeek(date), 2),                                      // 週番号 2桁
+                      w           : getNumberOfWeek(date).toString(),                                           // 週番号
+                      www         : getDayOfWeekKanji(date)                                                     // 曜日
+                     };
+    
+    let result = str;
+    for (const keyword of Object.keys(KEYWORDS)){
+      const pattern = "\{\{" + keyword + "\}\}";
+      const re = new RegExp(pattern,"g") ;
+      result = result.replace(re, KEYWORDS[keyword]);
+    }
+    return result;
+  }
+  
+  /**
    * 下書きを生成するためのメソッド
    * @param {boolean} force - すでに同名のメールが下書きにある場合にどうするか、true なら上書き、falseならスキップ
    */
@@ -64,124 +91,56 @@ class DraftTemplate{
       Logger.log(logHeader + " Skip ");
     }else{
       if (existDraft && force) {
-        existDraft.deleteDraft();
-        Logger.log(logHeader + " Overwrite");
+        Logger.log(logHeader + " Overwrite " + existDraft.getMessage().getSubject());
+        //existDraft.deleteDraft();
+        existDraft.update(
+          this.to,
+          this.constructor.replaceKeyword(this.subject),
+          this.constructor.replaceKeyword(this.body), 
+          {
+            cc: this.cc
+            // htmlBody: draft.body
+          }
+        );
       } else { 
         Logger.log(logHeader + " Create");
+        GmailApp.createDraft(
+          this.to,
+          this.constructor.replaceKeyword(this.subject),
+          this.constructor.replaceKeyword(this.body), 
+          {
+            cc: this.cc
+            // htmlBody: draft.body
+          }
+        );
       }
-      GmailApp.createDraft(
-        this.to,
-        this.subject,
-        this.body, 
-        {
-          cc: this.cc
-          // htmlBody: draft.body
-        }
-      );
       Logger.log(logHeader + " Done.");
     };
   };
   
   /**
    * 同じ件名の下書きがすでにあるかどうかを確認するための関数
+   * 日付など、置き換え用の文字列がある場合はそこの違いは無視する。
    * @returns {?GmailDraft} - あった場合は削除する可能性があるので見つかった下書きを返す。ない場合はnull.
    */
   getExistDraft(){
     const logHeader = "[" + this.subject + "].getExistDraft";
     const drafts = GmailApp.getDrafts();
     if( drafts.length ==0){
-      Logger.log(logHeader + " Error: ExistDraft is nothing");
+      Logger.log(logHeader + "No Exist Draft.");
       return;
     };
+
+    const escapedSubject = escapeRegExp(this.subject).replace(/\\\{\\\{.+\\\}\\\}/g, ".+?");
+    const re = new RegExp(escapedSubject);
     for(const draft of drafts){
       const subject = draft.getMessage().getSubject();
-      if (subject == this.subject){
+      if (re.test(subject) && draft.getMessage().getTo()){
+        //GmailDraftにはテンプレートが含まれてしまうため、テンプレートを除外するための暫定的な処理。
+        //テンプレートであれば宛先が空欄なので、draft.getMessage().getTo()はfalseになり、処理はスルーされるはず
         return draft;
       }    
     };
     return;
   };
 };
-
-
-/** 
- * ひな形シートを読み込んで下書きを生成する関数
- * @ param {boolean} force - すでに同名のメールが下書きにある場合にどうするか、true なら上書き、falseならスキップ
- */
-function generateDrafts(force = false){
-  let drafts = sheet2Drafts();
-  for (const draft of drafts) {
-      draft.createDraft(force);
-  }
-}
-
-/** ひな形シートを読み込んで下書きを生成する関数 強制上書き版 */
-function regenerateDrafts(){
-  generateDrafts(true);
-}
-
-/** 
- * ひな形シートを読み込んで'DraftTemlplate'クラスを生成する関数
- * @returns {DraftTemplates[]} - 'DraftTemplate'の配列
- */
-function sheet2Drafts(){
-  const sht = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(TEMPLATE_SHEET_NAME);
-  let drv = sht.getDataRange().getDisplayValues(); //DataRangeValues
-  
-  if (drv[1][0].toLowerCase() == FIELD_NAMES.cc){
-    // 通常のテーブルとは逆に、1列目が見出しで、以降1列1レコードとして処理する場合に、先に通常のテーブルの並びに直す。
-    // 列単位だと行単位と比べ、シート上で見やすいというメリットがある（かもしれない）ため、両方のフォーマットに対応。
-    drv = transpose2dArray(drv);
-  }else if (drv[0][1].toLowerCase() != FIELD_NAMES.cc){
-    Logger.log("ヘッダーが確認できませんでした")
-    return;
-  };
-  
-  let records;
-  recordEnd = drv.length;
-  let drafts = [];
-  for(let i=1 ;i < recordEnd ; i++){
-    Logger.log(i);
-    drafts.push(new DraftTemplate(
-        drv[i][FIELD_NUMS.to],
-        drv[i][FIELD_NUMS.cc],
-        drv[i][FIELD_NUMS.subject],
-        drv[i][FIELD_NUMS.body]
-    ));
-  };
-  return drafts;
-}
-
-/**
- * 2次配列の行列を入れ替える関数
- * @param {string[][]} array - 文字列の2次配列。
- * @returns {string[][]} - 文字列の2次配列　引数の行列を入れ替えたもの
- */
-function transpose2dArray(array){
-  return array[0].map((col, i) => array.map(row => row[i]));
-};
-
-/** onOpen時にメニューに項目を追加するための関数。 */
-function addMenu (){
-   const menu=[
-    {name: "下書きの生成", functionName: "generateDrafts"},
-    {name: "下書きの生成（上書き）", functionName: "regenerateDrafts"}
-  ];
-  SpreadsheetApp.getActiveSpreadsheet().addMenu("マクロ",menu);
-}
-/** 
- * スプレッドシートを開いた際に実行する関数。
- * メニューへの項目の追加と、実行するためのダイアログを出す。
- */
-function onOpen(){
-  addMenu()
-  const prompt =  Browser.msgBox("下書きを作成します", Browser.Buttons.OK_CANCEL);
-  if (prompt == "ok") { 
-    generateDrafts();
-  } 
-}
-
-function testRemoveActiveUserEmail(){
-  const src = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(TEMPLATE_SHEET_NAME);
-  Logger.log(DraftTemplate.removeActiveUserEmail(src));
-}
